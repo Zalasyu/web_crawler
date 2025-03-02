@@ -1,11 +1,11 @@
 import sqlite3
+from typing import Optional, List, Tuple
 
 DATABASE_FILE = "ecfr.db"
 
 class RegulationDAO:
-    def __init__(self, db_file=DATABASE_FILE):
+    def __init__(self, db_file: str = DATABASE_FILE):
         self.db_file = db_file
-        self.conn = None
 
     def __enter__(self):
         self.conn = sqlite3.connect(self.db_file)
@@ -21,45 +21,58 @@ class RegulationDAO:
 
     def create_tables(self):
         with self as cursor:
+            cursor.execute("DROP TABLE IF EXISTS regulations")
+            cursor.execute("DROP TABLE IF EXISTS changes")
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS regulations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title TEXT,
-                    version TEXT,
-                    date TEXT,
-                    hash TEXT,
-                    content TEXT
+                    title TEXT NOT NULL,
+                    section_id TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    hash TEXT NOT NULL,
+                    content TEXT NOT NULL
                 )
             """)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS changes (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title TEXT,
-                    version TEXT,
-                    date TEXT,
-                    previous_hash TEXT,
+                    title TEXT NOT NULL,
+                    section_id TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    old_hash TEXT,
                     new_hash TEXT
                 )
             """)
 
-    def insert_regulation(self, title, version, date, hash_value, content):
+    def insert_regulation(self, title: str, section_id: str, date: str, hash_value: str, content: str):
         with self as cursor:
             cursor.execute("""
-                INSERT OR REPLACE INTO regulations (title, version, date, hash, content)
+                INSERT INTO regulations (title, section_id, date, hash, content)
                 VALUES (?, ?, ?, ?, ?)
-            """, (title, version, date, hash_value, content))
+            """, (title, section_id, date, hash_value, content))
 
-    def get_regulation_hash(self, title, version):
+    def get_regulation_hash(self, title: str, section_id: str, date: str = None) -> Optional[str]:
         with self as cursor:
-            cursor.execute("""
-                SELECT hash FROM regulations WHERE title = ? AND version = ?
-            """, (title, version))
+            query = "SELECT hash FROM regulations WHERE title = ? AND section_id = ?"
+            params = [title, section_id]
+            if date:
+                query += " AND date < ? ORDER BY date DESC LIMIT 1"
+                params.append(date)
+            else:
+                query += " ORDER BY date DESC LIMIT 1"
+            cursor.execute(query, params)
             result = cursor.fetchone()
             return result[0] if result else None
 
-    def insert_change(self, title, version, date, previous_hash, new_hash):
+    def insert_change(self, title: str, section_id: str, date: str, old_hash: str, new_hash: str):
         with self as cursor:
             cursor.execute("""
-                INSERT INTO changes (title, version, date, previous_hash, new_hash)
+                INSERT INTO changes (title, section_id, date, old_hash, new_hash)
                 VALUES (?, ?, ?, ?, ?)
-            """, (title, version, date, previous_hash, new_hash))
+            """, (title, section_id, date, old_hash, new_hash))
+
+    def get_regulations(self) -> List[Tuple]:
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM regulations")
+            return cursor.fetchall()
